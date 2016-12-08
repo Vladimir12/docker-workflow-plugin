@@ -24,6 +24,7 @@
 package org.jenkinsci.plugins.docker.workflow;
 
 import com.google.common.base.Optional;
+import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.docker.workflow.client.DockerClient;
 import com.google.inject.Inject;
 import hudson.AbortException;
@@ -43,15 +44,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.Nonnull;
@@ -125,7 +118,13 @@ public class WithContainerStep extends AbstractStepImpl {
             EnvVars envReduced = new EnvVars(env);
             EnvVars envHost = computer.getEnvironment();
             envReduced.entrySet().removeAll(envHost.entrySet());
-            LOGGER.log(Level.FINE, "reduced environment: {0}", envReduced);
+
+            for (Map.Entry<String, String> envVariable:envReduced.entrySet()) {
+                if (envVariable.getKey().startsWith("DOCKER")) {
+                    envHost.put(envVariable.getKey(), envVariable.getValue());
+                }
+            }
+
             workspace.mkdirs(); // otherwise it may be owned by root when created for -v
             String ws = workspace.getRemote();
             toolName = step.toolName;
@@ -189,7 +188,7 @@ public class WithContainerStep extends AbstractStepImpl {
 
         @Override public void stop(@Nonnull Throwable cause) throws Exception {
             if (container != null) {
-                LOGGER.log(Level.FINE, "stopping container " + container, cause);
+                LOGGER.log(Level.INFO, "stopping container " + container, cause);
                 destroy(container, launcher, getContext().get(Node.class), env, toolName);
             }
         }
@@ -233,6 +232,14 @@ public class WithContainerStep extends AbstractStepImpl {
                     Set<String> envReduced = new TreeSet<String>(Arrays.asList(starter.envs()));
                     envReduced.removeAll(Arrays.asList(envHost));
                     prefix.addAll(envReduced);
+                    Map<String, String> environmentVariables = new HashMap<>();
+                    for (String variable: envHost) {
+                        String[] kv = variable.split("=");
+                        environmentVariables.put(kv[0], kv[1]);
+                    }
+
+                    starter.envs(environmentVariables);
+
                     // Adapted from decorateByPrefix:
                     starter.cmds().addAll(0, prefix);
                     if (starter.masks() != null) {
